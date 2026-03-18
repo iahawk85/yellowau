@@ -55,7 +55,9 @@ const getTextFromSelectors = async (source, selectors) => {
         const text = await element.innerText();
         if (text) return normalizeText(text);
       }
-    } catch {}
+    } catch {
+      // continue
+    }
   }
   return '';
 };
@@ -68,7 +70,9 @@ const getAttrFromSelectors = async (source, selectors, attr = 'href') => {
         const value = await element.getAttribute(attr);
         if (value) return value.trim();
       }
-    } catch {}
+    } catch {
+      // continue
+    }
   }
   return '';
 };
@@ -80,7 +84,9 @@ const getEmailFromPage = async (page) => {
       const href = await mailto.getAttribute('href');
       const email = normalizeEmail(href);
       if (email) return email;
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
 
   const bodyText = await page.locator('body').innerText().catch(() => '');
@@ -97,7 +103,9 @@ const getWebsiteFromPage = async (page, pageUrl) => {
       if (!normalized) continue;
       const isYellowPages = normalized.toLowerCase().includes('yellowpages.com.au');
       if (!isYellowPages) return normalized;
-    } catch {}
+    } catch {
+      // continue
+    }
   }
 
   const websiteFromLabel = await getAttrFromSelectors(page, ['a[class*="website"]', 'a:has-text("Website")']);
@@ -115,6 +123,37 @@ const buildSearchUrls = (keyword, location, maxPages) => {
   }
 
   return urls;
+};
+
+const escapeCsv = (value) => {
+  const stringValue = value === null || value === undefined ? '' : String(value);
+  return `"${stringValue.replace(/"/g, '""')}"`;
+};
+
+const exportDatasetToCsv = async (keyword, location) => {
+  const dataset = await Dataset.open();
+  const { items } = await dataset.getData();
+
+  if (!items.length) {
+    console.log('No data found to export to CSV.');
+    return;
+  }
+
+  const headers = Object.keys(items[0]);
+  const rows = [
+    headers.join(','),
+    ...items.map((row) => headers.map((header) => escapeCsv(row[header])).join(',')),
+  ];
+
+  const csv = rows.join('\n');
+  const safeKeyword = keyword.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '');
+  const safeLocation = location.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '');
+  const fileName = `${safeKeyword || 'keyword'}-${safeLocation || 'location'}.csv`;
+
+  await Actor.setValue(fileName, csv, { contentType: 'text/csv' });
+  await Actor.setValue('OUTPUT.csv', csv, { contentType: 'text/csv' });
+
+  console.log(`CSV file saved as ${fileName} and OUTPUT.csv`);
 };
 
 const run = async () => {
@@ -264,10 +303,11 @@ const run = async () => {
     }],
     failedRequestHandler: async ({ request, log }) => {
       log.error('Request failed too many times', { url: request.url, error: request.errorMessage });
-    }
+    },
   });
 
   await crawler.run(startRequests);
+  await exportDatasetToCsv(keyword, location);
   await Actor.exit();
 };
 

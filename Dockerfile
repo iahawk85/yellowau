@@ -1,4 +1,3 @@
-# Use Apify's Playwright image so Chromium is already installed.
 FROM apify/actor-node-playwright-chrome:20
 
 COPY --chown=myuser package*.json ./
